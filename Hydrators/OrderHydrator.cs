@@ -1,6 +1,5 @@
 namespace ShopwareDataHydrator.Hydrators;
 
-using Bogus;
 using ShopwareDataHydrator.Api;
 using ShopwareDataHydrator.Models;
 
@@ -21,14 +20,14 @@ public class OrderHydrator
     private readonly List<ProductInfo> _products;
     private readonly List<CustomerInfo> _customers;
     private readonly AppConfig _config;
-    private readonly Faker _faker;
+    private readonly CustomerHydrator _customerHydrator;
     private readonly Random _random;
     private readonly Dictionary<string, string> _customerTokens = new();
 
     public OrderHydrator(
         StorefrontApiClient storefront, AdminApiClient admin,
         ShopData shopData, List<ProductInfo> products, List<CustomerInfo> customers,
-        AppConfig config)
+        AppConfig config, CustomerHydrator customerHydrator)
     {
         _storefront = storefront;
         _admin = admin;
@@ -36,7 +35,7 @@ public class OrderHydrator
         _products = products;
         _customers = customers;
         _config = config;
-        _faker = new Faker("de");
+        _customerHydrator = customerHydrator;
         _random = new Random();
     }
 
@@ -221,8 +220,8 @@ public class OrderHydrator
         if (!_customerTokens.TryGetValue(customer.Email, out var contextToken))
             contextToken = await _storefront.Login(customer.Email, customer.Password);
 
+        contextToken = await SwitchRandomContext(contextToken);
         var products = SelectRandomProducts();
-
         contextToken = await _storefront.AddProducts(contextToken, products);
 
         if (usePromo)
@@ -238,21 +237,9 @@ public class OrderHydrator
 
     private async Task<(string? OrderId, string Label)> PlaceGuestOrder(bool usePromo)
     {
-        var isFemale = _faker.Random.Bool();
-        var salutation = isFemale
-            ? (_shopData.Salutations.FirstOrDefault(s => s.SalutationKey == "mrs") ?? _shopData.Salutations.First())
-            : (_shopData.Salutations.FirstOrDefault(s => s.SalutationKey == "mr") ?? _shopData.Salutations.First());
-
-        var firstName = isFemale
-            ? _faker.Name.FirstName(Bogus.DataSets.Name.Gender.Female)
-            : _faker.Name.FirstName(Bogus.DataSets.Name.Gender.Male);
-        var lastName = _faker.Name.LastName();
+        var country = _shopData.Countries[_random.Next(_shopData.Countries.Count)];
+        var (firstName, lastName, street, zipcode, city, salutation) = _customerHydrator.GeneratePersonData(country);
         var email = EmailHelper.Generate("guest", Guid.NewGuid().ToString("N")[..8], "");
-
-        var country = ResolveCountry();
-        var street = $"{_faker.Address.StreetName()} {_faker.Random.Number(1, 200)}";
-        var zipcode = _faker.Address.ZipCode();
-        var city = _faker.Address.City();
         var storefrontUrl = !string.IsNullOrEmpty(_shopData.SalesChannel.DomainUrl)
             ? _shopData.SalesChannel.DomainUrl.TrimEnd('/')
             : "";
@@ -261,6 +248,7 @@ public class OrderHydrator
             salutation.Id, firstName, lastName, email, "",
             street, zipcode, city, country.Id, storefrontUrl, guest: true);
 
+        contextToken = await SwitchRandomContext(contextToken);
         var products = SelectRandomProducts();
         contextToken = await _storefront.AddProducts(contextToken, products);
 
@@ -271,7 +259,7 @@ public class OrderHydrator
         }
 
         var orderId = await _storefront.PlaceOrder(contextToken);
-        return (orderId, $"Guest: {firstName} {lastName} ({products.Count} products)");
+        return (orderId, $"Guest: {firstName} {lastName} [{country.Iso}] ({products.Count} products)");
     }
 
     private List<(string ProductId, int Quantity)> SelectRandomProducts()
@@ -338,17 +326,20 @@ public class OrderHydrator
         return start.AddMinutes(_random.NextDouble() * totalMinutes);
     }
 
-    private CountryInfo ResolveCountry()
+    private async Task<string> SwitchRandomContext(string contextToken)
     {
-        if (!string.IsNullOrEmpty(_shopData.SalesChannel.CountryId))
-        {
-            var scCountry = _shopData.Countries
-                .FirstOrDefault(c => c.Id == _shopData.SalesChannel.CountryId);
-            if (scCountry != null) return scCountry;
-        }
+        string? paymentId = null;
+        string? shippingId = null;
 
-        return _shopData.Countries.FirstOrDefault(c => c.Iso == "DE")
-               ?? _shopData.Countries.First();
+        if (_shopData.PaymentMethods.Count > 0)
+            paymentId = _shopData.PaymentMethods[_random.Next(_shopData.PaymentMethods.Count)].Id;
+        if (_shopData.ShippingMethods.Count > 0)
+            shippingId = _shopData.ShippingMethods[_random.Next(_shopData.ShippingMethods.Count)].Id;
+
+        if (paymentId != null || shippingId != null)
+            contextToken = await _storefront.SwitchContext(contextToken, paymentId, shippingId);
+
+        return contextToken;
     }
 
     private async Task ApplyOrderStatus(string orderId, OrderStatus status)

@@ -6,4 +6,6 @@ public class ShopData
     public List<SalutationInfo> Salutations { get; set; } = [];
     public List<CountryInfo> Countries { get; set; } = [];
     public List<string> PromotionCodes { get; set; } = [];
+    public List<PaymentMethodInfo> PaymentMethods { get; set; } = [];
+    public List<ShippingMethodInfo> ShippingMethods { get; set; } = [];
 }

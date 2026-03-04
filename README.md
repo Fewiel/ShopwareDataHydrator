@@ -27,7 +27,9 @@ ShopwareDataHydrator-win-x64.exe -url=https://myshop.com -user=admin -password=s
 
 ## Features
 
-- Creates registered customers with realistic German names and addresses (via [Bogus](https://github.com/bchavez/Bogus))
+- Creates customers with realistic locale-appropriate names and addresses (via [Bogus](https://github.com/bchavez/Bogus))
+- Randomly uses different countries available in the sales channel with matching locale data
+- Randomly uses different payment and shipping methods available in the sales channel
 - Creates orders for registered customers and guest customers via the Storefront API
 - Uses existing products from the sales channel
 - Backdates orders randomly across a configurable time range

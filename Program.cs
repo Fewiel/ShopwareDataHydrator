@@ -81,15 +81,23 @@ Console.Write("Fetching salutations... ");
 var salutations = await adminApi.GetSalutations();
 Console.WriteLine($"OK ({salutations.Count})");
 
-Console.Write("Fetching countries... ");
-var countries = await adminApi.GetCountries();
-Console.WriteLine($"OK ({countries.Count})");
-
 Console.Write("Fetching promotion codes... ");
 var promotionCodes = await adminApi.GetPromotionCodes();
 Console.WriteLine($"OK ({promotionCodes.Count})");
 
 var storefrontApi = new StorefrontApiClient(httpClient, salesChannel.AccessKey, salesChannel.NavigationCategoryId);
+
+Console.Write("Fetching available countries... ");
+var countries = await storefrontApi.GetCountries();
+Console.WriteLine($"OK ({countries.Count})");
+
+Console.Write("Fetching payment methods... ");
+var paymentMethods = await storefrontApi.GetPaymentMethods();
+Console.WriteLine($"OK ({paymentMethods.Count}: {string.Join(", ", paymentMethods.Select(p => p.Name))})");
+
+Console.Write("Fetching shipping methods... ");
+var shippingMethods = await storefrontApi.GetShippingMethods();
+Console.WriteLine($"OK ({shippingMethods.Count}: {string.Join(", ", shippingMethods.Select(s => s.Name))})");
 
 Console.Write("Fetching available products... ");
 var products = await storefrontApi.GetProducts();
@@ -106,13 +114,15 @@ var shopData = new ShopData
     SalesChannel = salesChannel,
     Salutations = salutations,
     Countries = countries,
-    PromotionCodes = promotionCodes
+    PromotionCodes = promotionCodes,
+    PaymentMethods = paymentMethods,
+    ShippingMethods = shippingMethods
 };
 
 var customerHydrator = new CustomerHydrator(storefrontApi, adminApi, shopData);
 var customers = await customerHydrator.CreateCustomers(config.CustomerCount);
 
-var orderHydrator = new OrderHydrator(storefrontApi, adminApi, shopData, products, customers, config);
+var orderHydrator = new OrderHydrator(storefrontApi, adminApi, shopData, products, customers, config, customerHydrator);
 
 if (config.LiveDuration > 0)
     await orderHydrator.CreateOrdersLive(config.OrderCount, config.LiveDuration, config.LiveStatus);

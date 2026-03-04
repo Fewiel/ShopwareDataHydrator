@@ -206,9 +206,86 @@ public class StorefrontApiClient
         }
     }
 
-    public async Task<string> SwitchPaymentMethod(string contextToken, string paymentMethodId)
+    public async Task<List<PaymentMethodInfo>> GetPaymentMethods()
     {
-        var body = new JsonObject { ["paymentMethodId"] = paymentMethodId };
+        var list = new List<PaymentMethodInfo>();
+        var body = new JsonObject { ["onlyAvailable"] = true };
+        var (json, _) = await Send(HttpMethod.Post, "/store-api/payment-method", body);
+        var elements = json?["elements"]?.AsArray();
+        if (elements == null) return list;
+
+        foreach (var item in elements)
+        {
+            var name = item!["translated"]?["name"]?.GetValue<string>()
+                       ?? item["name"]?.GetValue<string>() ?? "";
+            list.Add(new PaymentMethodInfo
+            {
+                Id = item["id"]!.GetValue<string>(),
+                Name = name
+            });
+        }
+        return list;
+    }
+
+    public async Task<List<ShippingMethodInfo>> GetShippingMethods()
+    {
+        var list = new List<ShippingMethodInfo>();
+        var body = new JsonObject { ["onlyAvailable"] = true };
+        var (json, _) = await Send(HttpMethod.Post, "/store-api/shipping-method", body);
+        var elements = json?["elements"]?.AsArray();
+        if (elements == null) return list;
+
+        foreach (var item in elements)
+        {
+            var name = item!["translated"]?["name"]?.GetValue<string>()
+                       ?? item["name"]?.GetValue<string>() ?? "";
+            list.Add(new ShippingMethodInfo
+            {
+                Id = item["id"]!.GetValue<string>(),
+                Name = name
+            });
+        }
+        return list;
+    }
+
+    public async Task<List<CountryInfo>> GetCountries()
+    {
+        var list = new List<CountryInfo>();
+        var page = 1;
+        while (true)
+        {
+            var body = new JsonObject { ["limit"] = 100, ["p"] = page };
+            var (json, _) = await Send(HttpMethod.Post, "/store-api/country", body);
+            var elements = json?["elements"]?.AsArray();
+            if (elements == null || elements.Count == 0) break;
+
+            foreach (var item in elements)
+            {
+                var active = item!["active"]?.GetValue<bool>() ?? false;
+                if (!active) continue;
+                list.Add(new CountryInfo
+                {
+                    Id = item["id"]!.GetValue<string>(),
+                    Iso = item["iso"]?.GetValue<string>() ?? "",
+                    Name = item["translated"]?["name"]?.GetValue<string>()
+                           ?? item["name"]?.GetValue<string>() ?? ""
+                });
+            }
+
+            var total = json?["total"]?.GetValue<int>() ?? 0;
+            if (page * 100 >= total) break;
+            page++;
+        }
+        return list;
+    }
+
+    public async Task<string> SwitchContext(string contextToken, string? paymentMethodId = null, string? shippingMethodId = null)
+    {
+        var body = new JsonObject();
+        if (!string.IsNullOrEmpty(paymentMethodId))
+            body["paymentMethodId"] = paymentMethodId;
+        if (!string.IsNullOrEmpty(shippingMethodId))
+            body["shippingMethodId"] = shippingMethodId;
         var (_, newToken) = await Send(HttpMethod.Patch, "/store-api/context", body, contextToken);
         return newToken;
     }
