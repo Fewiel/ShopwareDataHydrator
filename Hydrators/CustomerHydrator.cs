@@ -9,15 +9,14 @@ public class CustomerHydrator
     private readonly StorefrontApiClient _storefront;
     private readonly AdminApiClient _admin;
     private readonly ShopData _shopData;
-    private readonly Faker _faker;
     private readonly string _password;
+    private readonly Random _random = new();
 
     public CustomerHydrator(StorefrontApiClient storefront, AdminApiClient admin, ShopData shopData)
     {
         _storefront = storefront;
         _admin = admin;
         _shopData = shopData;
-        _faker = new Faker("de");
         _password = GeneratePassword();
     }
 
@@ -43,7 +42,6 @@ public class CustomerHydrator
     public async Task<List<CustomerInfo>> CreateCustomers(int count)
     {
         var customers = new List<CustomerInfo>();
-        var country = ResolveCountry();
 
         Console.WriteLine();
         Console.WriteLine($"Creating {count} customers...");
@@ -52,9 +50,10 @@ public class CustomerHydrator
         {
             try
             {
+                var country = _shopData.Countries[_random.Next(_shopData.Countries.Count)];
                 var customer = await CreateSingleCustomer(country);
                 customers.Add(customer);
-                Console.WriteLine($"  [{i + 1}/{count}] {customer.FirstName} {customer.LastName} ({customer.Email})");
+                Console.WriteLine($"  [{i + 1}/{count}] {customer.FirstName} {customer.LastName} ({customer.Email}) [{country.Iso}]");
             }
             catch (Exception ex)
             {
@@ -68,19 +67,22 @@ public class CustomerHydrator
 
     private async Task<CustomerInfo> CreateSingleCustomer(CountryInfo country)
     {
-        var isFemale = _faker.Random.Bool();
+        var locale = LocaleHelper.GetBogusLocale(country.Iso);
+        var faker = new Faker(locale);
+
+        var isFemale = faker.Random.Bool();
         var salutation = ResolveSalutation(isFemale);
 
         var firstName = isFemale
-            ? _faker.Name.FirstName(Bogus.DataSets.Name.Gender.Female)
-            : _faker.Name.FirstName(Bogus.DataSets.Name.Gender.Male);
-        var lastName = _faker.Name.LastName();
+            ? faker.Name.FirstName(Bogus.DataSets.Name.Gender.Female)
+            : faker.Name.FirstName(Bogus.DataSets.Name.Gender.Male);
+        var lastName = faker.Name.LastName();
 
-        var email = EmailHelper.Generate(firstName, lastName, _faker.Random.AlphaNumeric(6));
+        var email = EmailHelper.Generate(firstName, lastName, faker.Random.AlphaNumeric(6));
         var password = _password;
-        var street = $"{_faker.Address.StreetName()} {_faker.Random.Number(1, 200)}";
-        var zipcode = _faker.Address.ZipCode();
-        var city = _faker.Address.City();
+        var street = $"{faker.Address.StreetName()} {faker.Random.Number(1, 200)}";
+        var zipcode = faker.Address.ZipCode();
+        var city = faker.Address.City();
         var storefrontUrl = GetStorefrontUrl();
 
         var (customerId, _) = await _storefront.RegisterCustomer(
@@ -104,24 +106,27 @@ public class CustomerHydrator
         };
     }
 
+    public (string FirstName, string LastName, string Street, string Zipcode, string City, SalutationInfo Salutation) GeneratePersonData(CountryInfo country)
+    {
+        var locale = LocaleHelper.GetBogusLocale(country.Iso);
+        var faker = new Faker(locale);
+        var isFemale = faker.Random.Bool();
+        var salutation = ResolveSalutation(isFemale);
+        var firstName = isFemale
+            ? faker.Name.FirstName(Bogus.DataSets.Name.Gender.Female)
+            : faker.Name.FirstName(Bogus.DataSets.Name.Gender.Male);
+        var lastName = faker.Name.LastName();
+        var street = $"{faker.Address.StreetName()} {faker.Random.Number(1, 200)}";
+        var zipcode = faker.Address.ZipCode();
+        var city = faker.Address.City();
+        return (firstName, lastName, street, zipcode, city, salutation);
+    }
+
     private SalutationInfo ResolveSalutation(bool isFemale)
     {
         var key = isFemale ? "mrs" : "mr";
         return _shopData.Salutations.FirstOrDefault(s => s.SalutationKey == key)
                ?? _shopData.Salutations.First();
-    }
-
-    private CountryInfo ResolveCountry()
-    {
-        if (!string.IsNullOrEmpty(_shopData.SalesChannel.CountryId))
-        {
-            var scCountry = _shopData.Countries
-                .FirstOrDefault(c => c.Id == _shopData.SalesChannel.CountryId);
-            if (scCountry != null) return scCountry;
-        }
-
-        return _shopData.Countries.FirstOrDefault(c => c.Iso == "DE")
-               ?? _shopData.Countries.First();
     }
 
     private string GetStorefrontUrl()
